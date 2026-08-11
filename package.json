@@ -22,6 +22,7 @@
     "prepublishOnly": "tsc -b",
     "test": "vitest run",
     "test:package-api": "npm run build && tsc -p test/tsconfig.public-api.json",
+    "test:packed-consumer": "node scripts/test-packed-consumer.mjs",
     "test:types": "tsc -p test/tsconfig.json",
     "test:watch": "vitest"
   },
