@@ -169,8 +169,8 @@ export interface FlowRunnerConfig {
   /**
    * Optional factory for the task object used by configured sub-agents invoked
    * through `agent:` tools. Defaults to `(ctx, options) => new AgentTask(ctx,
-   * options)`. Direct `AgentTask` construction and flow-step agent execution
-   * continue to use the registry path.
+   * options)`. Direct `AgentTask` construction is unchanged; configured agents
+   * run as flow steps continue to use the registry path.
    */
   nestedAgentTaskFactory?: NestedAgentTaskFactory;
 }
