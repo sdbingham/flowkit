@@ -19,6 +19,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
+    "prepare": "npm run build",
     "prepublishOnly": "tsc -b",
     "test": "vitest run",
     "test:package-api": "npm run build && tsc -p test/tsconfig.public-api.json",
