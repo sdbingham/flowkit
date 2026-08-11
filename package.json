@@ -1,6 +1,6 @@
 {
   "name": "@db-lyon/flowkit",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "YAML-configured task and flow orchestration engine",
   "type": "module",
   "main": "dist/index.js",

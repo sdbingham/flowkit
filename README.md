@@ -192,6 +192,11 @@ other agents' tools, with mandatory budgets (`maxIterations`, `tokenBudget`,
 `maxAgentDepth`). Iteration and concurrency live in the agent runtime, so a flow
 stays a sequential spine with no `loop:` or parallel-step primitive.
 
+Hosts can optionally pass `nestedAgentTaskFactory` to `FlowRunner` to control the
+task object used only for configured sub-agents invoked through `agent:` tools.
+When omitted, Flowkit behaves as if it constructed `new AgentTask(ctx, options)`.
+Agents run directly as flow steps still use the normal registry path.
+
 ```yaml
 tasks:
   extract:

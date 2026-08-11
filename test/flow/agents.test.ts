@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { FlowRunner } from '../../src/flow/runner.js';
+import {
+  FlowRunner,
+  type NestedAgentTaskFactory,
+} from '../../src/flow/runner.js';
 import { TaskRegistry } from '../../src/task/registry.js';
-import { BaseTask, type TaskResult } from '../../src/task/base-task.js';
+import { BaseTask, type TaskContext, type TaskResult } from '../../src/task/base-task.js';
+import { AgentTask } from '../../src/task/agent-task.js';
 import type { LLMProvider } from '../../src/task/llm-provider.js';
 import type { AgentDefinition } from '../../src/config/schema.js';
+import type { AgentTaskOptions } from '../../src/task/agent-task.js';
 
 class EchoTask extends BaseTask<Record<string, unknown>> {
   get taskName() { return 'echo'; }
@@ -251,5 +256,292 @@ describe('FlowRunner agents', () => {
     const res = await r.run({ flowName: 'main' });
     expect(res.success).toBe(false);
     expect(res.steps[0]?.result?.error?.message).toMatch(/must set a `tokenBudget`/);
+  });
+
+  it('keeps default nested agent behavior equivalent to AgentTask construction', async () => {
+    const r = runner(
+      {
+        coord: { system: 'COORD', tools: [{ agent: 'worker' }], budget: { tokenBudget: 100000 } } as never,
+        worker: { system: 'WORKER', tools: [] } as never,
+      },
+      { main: { steps: { 1: { task: 'coord', options: { prompt: 'delegate' } } } } },
+    );
+
+    const res = await r.run({ flowName: 'main' });
+
+    expect(res.success).toBe(true);
+    const data = res.steps[0]?.result?.data as { text: string; toolCalls: Array<{ name: string; ok: boolean; result: string }> };
+    expect(data).toMatchObject({
+      text: 'coord-done',
+      toolCalls: [{ name: 'worker', ok: true }],
+    });
+    expect(data.toolCalls[0]?.result).toContain('worker-done');
+  });
+
+  it('invokes the nested agent factory only for agent tool execution', async () => {
+    const calls: Array<{ ctx: TaskContext; options: AgentTaskOptions }> = [];
+    const factory: NestedAgentTaskFactory = (ctx, options) => {
+      calls.push({ ctx, options });
+      return { run: async () => ({ success: true, data: { text: 'factory-worker' } }) };
+    };
+    const provider: LLMProvider = {
+      async complete(req) {
+        const state = provider as { _c?: number };
+        if ((req.system ?? '').includes('SOLO')) return { text: 'solo-done', finishReason: 'stop' };
+        state._c = (state._c ?? 0) + 1;
+        return state._c === 1
+          ? { text: '', finishReason: 'tool_use', toolCalls: [{ id: '1', name: 'worker', arguments: { prompt: 'sub' } }] }
+          : { text: 'coord-done', finishReason: 'stop' };
+      },
+    };
+    const r = new FlowRunner({
+      tasks: {} as never,
+      flows: {
+        direct: { steps: { 1: { task: 'solo', options: { prompt: 'go' } } } },
+        nested: { steps: { 1: { task: 'coord', options: { prompt: 'go' } } } },
+      } as never,
+      agents: {
+        solo: { system: 'SOLO' },
+        coord: { system: 'COORD', tools: [{ agent: 'worker' }], budget: { tokenBudget: 100000 } },
+        worker: { system: 'WORKER' },
+      } as never,
+      registry: new TaskRegistry(),
+      context: { llm: provider },
+      nestedAgentTaskFactory: factory,
+    });
+
+    const direct = await r.run({ flowName: 'direct' });
+    expect(direct.success).toBe(true);
+    expect(calls).toHaveLength(0);
+
+    const nested = await r.run({ flowName: 'nested' });
+    expect(nested.success).toBe(true);
+    expect(calls).toHaveLength(1);
+    const data = nested.steps[0]?.result?.data as { toolCalls: Array<{ result: string }> };
+    expect(data.toolCalls[0]?.result).toContain('factory-worker');
+  });
+
+  it('passes the prepared child context and compiled options to the nested agent factory', async () => {
+    const controller = new AbortController();
+    const observations: Array<{ ctx: TaskContext; options: AgentTaskOptions }> = [];
+    const factory: NestedAgentTaskFactory = (ctx, options) => {
+      observations.push({ ctx, options });
+      return { run: async () => ({ success: true, data: { text: 'worker-result' } }) };
+    };
+    const provider: LLMProvider = {
+      async complete(req) {
+        const state = provider as { _c?: number };
+        state._c = (state._c ?? 0) + 1;
+        return state._c === 1
+          ? {
+              text: '',
+              finishReason: 'tool_use',
+              toolCalls: [{ id: '1', name: 'worker', arguments: { prompt: 'literal ${org.username}' } }],
+              usage: { inputTokens: 5, outputTokens: 7 },
+            }
+          : { text: 'done', finishReason: 'stop' };
+      },
+    };
+    const registry = new TaskRegistry().register('echo', EchoTask as never);
+    const r = new FlowRunner({
+      tasks: { echo: { class_path: 'echo', options: { owner: '${org.username}' } } } as never,
+      flows: { main: { steps: { 1: { task: 'coord', options: { prompt: 'go' } } } } } as never,
+      agents: {
+        coord: {
+          system: 'COORD ${org.username}',
+          tools: [{ agent: 'worker' }],
+          budget: { tokenBudget: 100000 },
+        },
+        worker: {
+          system: 'WORKER ${org.username}',
+          tools: [{ task: 'echo' }],
+          budget: { maxIterations: 3 },
+        },
+      } as never,
+      registry,
+      context: { llm: provider, signal: controller.signal },
+      references: { org: { username: 'admin@example.com' } },
+      nestedAgentTaskFactory: factory,
+    });
+
+    const res = await r.run({ flowName: 'main' });
+
+    expect(res.success).toBe(true);
+    expect(observations).toHaveLength(1);
+    const { ctx, options } = observations[0]!;
+    expect(options).toMatchObject({
+      system: 'WORKER admin@example.com',
+      prompt: 'literal ${org.username}',
+      tools: [{ task: 'echo' }],
+      maxIterations: 3,
+    });
+    expect(ctx.executionPhase).toBe('task');
+    expect(ctx.registry).toBe(registry);
+    expect(ctx.llm).toBe(provider);
+    expect(ctx.signal).toBe(controller.signal);
+    expect(ctx.taskDefinitions?.echo?.options).toEqual({ owner: '${org.username}' });
+    expect(ctx.taskReferenceContext?.namespaces?.org).toEqual({ username: 'admin@example.com' });
+    expect(ctx.__agentDepth).toBe(1);
+    expect(ctx.__tokenLedger).toBeDefined();
+    expect(typeof ctx.runFlow).toBe('function');
+    expect(typeof ctx.runAgent).toBe('function');
+  });
+
+  it('lets a replacement task retain nested recursion, its shared ledger, and the run signal', async () => {
+    const controller = new AbortController();
+    const calls: Array<{ ctx: TaskContext; options: AgentTaskOptions }> = [];
+    const factory: NestedAgentTaskFactory = (ctx, options) => {
+      calls.push({ ctx, options });
+      return new AgentTask(ctx, options);
+    };
+    const counts: Record<string, number> = {};
+    const provider: LLMProvider = {
+      async complete(req) {
+        const system = req.system ?? '';
+        counts[system] = (counts[system] ?? 0) + 1;
+        if (system === 'COORD') {
+          return counts[system] === 1
+            ? { text: '', finishReason: 'tool_use', toolCalls: [{ id: 'coord-1', name: 'worker', arguments: { prompt: 'delegate' } }] }
+            : { text: 'coord-done', finishReason: 'stop' };
+        }
+        if (system === 'WORKER') {
+          return counts[system] === 1
+            ? { text: '', finishReason: 'tool_use', toolCalls: [{ id: 'worker-1', name: 'leaf', arguments: { prompt: 'finish' } }] }
+            : { text: 'worker-done', finishReason: 'stop' };
+        }
+        return { text: 'leaf-done', finishReason: 'stop' };
+      },
+    };
+    const r = new FlowRunner({
+      tasks: {} as never,
+      flows: { main: { steps: { 1: { task: 'coord', options: { prompt: 'go' } } } } } as never,
+      agents: {
+        coord: { system: 'COORD', tools: [{ agent: 'worker' }], budget: { tokenBudget: 100000 } },
+        worker: { system: 'WORKER', tools: [{ agent: 'leaf' }] },
+        leaf: { system: 'LEAF' },
+      } as never,
+      registry: new TaskRegistry(),
+      context: { llm: provider, signal: controller.signal },
+      nestedAgentTaskFactory: factory,
+    });
+
+    const res = await r.run({ flowName: 'main' });
+
+    expect(res.success).toBe(true);
+    expect(calls.map(({ options }) => options.system)).toEqual(['WORKER', 'LEAF']);
+    expect(calls.map(({ ctx }) => ctx.__agentDepth)).toEqual([1, 2]);
+    expect(calls[0]?.ctx.__tokenLedger).toBeDefined();
+    expect(calls[1]?.ctx.__tokenLedger).toBe(calls[0]?.ctx.__tokenLedger);
+    expect(calls.map(({ ctx }) => ctx.signal)).toEqual([controller.signal, controller.signal]);
+    expect(calls.map(({ ctx }) => ctx.executionPhase)).toEqual(['task', 'task']);
+  });
+
+  it('converts nested factory construction and run errors into normal tool failures', async () => {
+    const factory: NestedAgentTaskFactory = (_ctx, options) => {
+      if (options.prompt === 'throw') throw new Error('factory failed');
+      return { run: async () => Promise.reject(new Error('nested run failed')) };
+    };
+    const provider: LLMProvider = {
+      async complete() {
+        const state = provider as { _n?: number };
+        state._n = (state._n ?? 0) + 1;
+        return state._n === 1
+          ? {
+              text: '',
+              finishReason: 'tool_use',
+              toolCalls: [
+                { id: '1', name: 'worker', arguments: { prompt: 'throw' } },
+                { id: '2', name: 'worker', arguments: { prompt: 'reject' } },
+              ],
+            }
+          : { text: 'coord-done', finishReason: 'stop' };
+      },
+    };
+    const r = new FlowRunner({
+      tasks: {} as never,
+      flows: { main: { steps: { 1: { task: 'coord', options: { prompt: 'go' } } } } } as never,
+      agents: {
+        coord: {
+          system: 'COORD',
+          tools: [{ agent: 'worker' }],
+          budget: { tokenBudget: 100000, maxConcurrency: 1 },
+        },
+        worker: { system: 'WORKER' },
+      } as never,
+      registry: new TaskRegistry(),
+      context: { llm: provider },
+      nestedAgentTaskFactory: factory,
+    });
+
+    const res = await r.run({ flowName: 'main' });
+
+    expect(res.success).toBe(true);
+    const data = res.steps[0]?.result?.data as {
+      toolCalls: Array<{ name: string; ok: boolean; result: string }>;
+    };
+    expect(data.toolCalls).toMatchObject([
+      { name: 'worker', ok: false, result: 'Error: factory failed' },
+      { name: 'worker', ok: false, result: 'Error: nested run failed' },
+    ]);
+  });
+
+  it('keeps nested factory success and failure result shapes compatible', async () => {
+    const calls: string[] = [];
+    const factory: NestedAgentTaskFactory = (_ctx, options) => {
+      calls.push(options.prompt);
+      return {
+        run: async () =>
+          options.prompt === 'fail'
+            ? { success: false, error: new Error('nested failed') }
+            : { success: true, data: { text: 'nested ok' } },
+      };
+    };
+    const provider: LLMProvider = {
+      async complete() {
+        const state = provider as { _n?: number };
+        state._n = (state._n ?? 0) + 1;
+        if (state._n === 1) {
+          return {
+            text: '',
+            finishReason: 'tool_use',
+            toolCalls: [
+              { id: '1', name: 'worker', arguments: { prompt: 'ok' } },
+              { id: '2', name: 'worker', arguments: { prompt: 'fail' } },
+            ],
+          };
+        }
+        return { text: 'coord-done', finishReason: 'stop' };
+      },
+    };
+    const r = new FlowRunner({
+      tasks: {} as never,
+      flows: { main: { steps: { 1: { task: 'coord', options: { prompt: 'go' } } } } } as never,
+      agents: {
+        coord: {
+          system: 'COORD',
+          tools: [{ agent: 'worker' }],
+          budget: { tokenBudget: 100000, maxConcurrency: 1 },
+        },
+        worker: { system: 'WORKER' },
+      } as never,
+      registry: new TaskRegistry(),
+      context: { llm: provider },
+      nestedAgentTaskFactory: factory,
+    });
+
+    const res = await r.run({ flowName: 'main' });
+
+    expect(res.success).toBe(true);
+    expect(calls).toEqual(['ok', 'fail']);
+    const data = res.steps[0]?.result?.data as {
+      text: string;
+      toolCalls: Array<{ name: string; ok: boolean; result: string }>;
+    };
+    expect(data.text).toBe('coord-done');
+    expect(data.toolCalls).toMatchObject([
+      { name: 'worker', ok: true },
+      { name: 'worker', ok: false, result: 'Error: nested failed' },
+    ]);
+    expect(data.toolCalls[0]?.result).toContain('nested ok');
   });
 });

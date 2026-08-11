@@ -252,6 +252,28 @@ const runner = new FlowRunner({
 });
 ```
 
+Hosts that wrap task construction can customize only configured sub-agents
+invoked through `agent:` tools:
+
+```typescript
+import { AgentTask, FlowRunner } from '@db-lyon/flowkit';
+
+const runner = new FlowRunner({
+  tasks: config.tasks,
+  flows: config.flows,
+  agents: config.agents,
+  registry,
+  context: { logger, llm: provider },
+  nestedAgentTaskFactory: (ctx, options) => new AgentTask(ctx, options),
+});
+```
+
+When omitted, the default is equivalent to `new AgentTask(ctx, options)`.
+Flowkit supplies the factory with the prepared child context and compiled
+options used for recursion depth, shared token budget, references, cancellation
+signals, registry access, execution phase, and tool dispatch. Agents run
+directly as flow steps still use the normal registry path.
+
 A declared agent is usable two ways, both through machinery that already exists:
 
 - **As a flow step** — reference it like any task; supply its prompt in the step:

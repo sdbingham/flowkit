@@ -6,6 +6,7 @@ import type {
   RollbackRecord,
   TaskContext,
   TaskContextInput,
+  ResolvedTaskContext,
   ExecutionPhase,
 } from '../task/base-task.js';
 import { DEFAULT_EXECUTION_PHASE } from '../task/base-task.js';
@@ -129,6 +130,21 @@ export interface FlowRunnerHooks {
   onStepError?(step: PlanStep, error: Error, completed: FlowStepResult[]): Promise<void>;
 }
 
+/** Task-like object returned by a host-supplied nested agent factory. */
+export interface NestedAgentTask {
+  run(): Promise<TaskResult>;
+}
+
+/**
+ * Creates the task used when an `AgentTask` invokes a configured sub-agent via
+ * an `agent:` tool. The context and options have already been fully prepared by
+ * `FlowRunner`; implementations should preserve them.
+ */
+export type NestedAgentTaskFactory = (
+  ctx: ResolvedTaskContext & { readonly executionPhase: 'task' },
+  options: AgentTaskOptions,
+) => NestedAgentTask;
+
 export interface FlowRunnerConfig {
   tasks: Record<string, TaskDefinition>;
   flows: Record<string, FlowDefinition>;
@@ -150,6 +166,13 @@ export interface FlowRunnerConfig {
    * `ctx.runAgent` so agents can call flows and sub-agents as tools.
    */
   agents?: Record<string, AgentDefinition>;
+  /**
+   * Optional factory for the task object used by configured sub-agents invoked
+   * through `agent:` tools. Defaults to `(ctx, options) => new AgentTask(ctx,
+   * options)`. Direct `AgentTask` construction and flow-step agent execution
+   * continue to use the registry path.
+   */
+  nestedAgentTaskFactory?: NestedAgentTaskFactory;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +189,7 @@ export class FlowRunner {
   private conditionEvaluator?: ConditionEvaluator;
   private references?: Record<string, unknown>;
   private agents: Record<string, AgentDefinition>;
+  private nestedAgentTaskFactory: NestedAgentTaskFactory;
   private runDepth = 0;
   /**
    * Reference scope outside any step: the host namespaces, no step results.
@@ -184,6 +208,8 @@ export class FlowRunner {
     this.references = config.references;
     this.baseReferences = { steps: [], namespaces: this.references };
     this.agents = config.agents ?? {};
+    this.nestedAgentTaskFactory =
+      config.nestedAgentTaskFactory ?? ((ctx, options) => new AgentTask(ctx, options));
 
     // Compile each agent into a task definition so it is runnable as a flow
     // step (`task: <agentName>`) and as a task-backed tool. Explicit tasks of
@@ -308,12 +334,17 @@ export class FlowRunner {
     const options = { ...compiled, prompt };
     // Carry the caller's reference scope down, so a task used as a tool inside
     // the sub-agent interpolates its configured defaults like anywhere else.
-    const childCtx: TaskContext = {
+    const childCtx: ResolvedTaskContext & { readonly executionPhase: 'task' } = {
       ...this.contextFor(references),
+      executionPhase: 'task',
       __agentDepth: depth,
       __tokenLedger: ledger,
     };
-    return new AgentTask(childCtx, options as AgentTaskOptions).run();
+    try {
+      return await this.nestedAgentTaskFactory(childCtx, options as AgentTaskOptions).run();
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
   }
 
   async run(options: FlowRunOptions): Promise<FlowRunResult> {

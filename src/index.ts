@@ -79,6 +79,8 @@ export type {
   FlowRunResult,
   FlowRunnerHooks,
   FlowRunnerConfig,
+  NestedAgentTask,
+  NestedAgentTaskFactory,
   PlanStep,
   HookPhase,
   HookError,
