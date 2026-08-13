@@ -31,8 +31,21 @@ try {
   );
   writeFileSync(
     join(workspace, 'index.ts'),
-    `import { AgentTask, FlowRunner, TaskRegistry, type NestedAgentTaskFactory } from '@db-lyon/flowkit';
+    `import { AgentTask, FlowRunner, TaskRegistry, type AgentPromptOptions, type AgentRetryOptions, type AgentRunFields, type AgentTaskOptions, type NestedAgentTaskFactory } from '@db-lyon/flowkit';
 import type { NestedAgentTaskFactory as FlowFactory } from '@db-lyon/flowkit/flow';
+import type { AgentPromptOptions as TaskAgentPromptOptions, AgentRetryOptions as TaskAgentRetryOptions, AgentRunFields as TaskAgentRunFields, AgentTaskOptions as TaskAgentTaskOptions } from '@db-lyon/flowkit/task';
+const retryOn = (err: Error) => err.name === 'non-retryable';
+const agentOptions: AgentTaskOptions = { prompt: 'go', retryOn };
+const promptOptions: AgentPromptOptions = { prompt: 'go', retryOn };
+const taskAgentOptions: TaskAgentTaskOptions = agentOptions;
+const taskPromptOptions: TaskAgentPromptOptions = promptOptions;
+const retryOptions: AgentRetryOptions = { retryOn };
+const taskRetryOptions: TaskAgentRetryOptions = retryOptions;
+const runFields: AgentRunFields = { retries: 2 };
+const taskRunFields: TaskAgentRunFields = runFields;
+// @ts-expect-error retryOn is host-only, not YAML-safe AgentRunFields.
+const invalidRunFields: AgentRunFields = { retryOn };
+void taskAgentOptions; void taskPromptOptions; void taskRetryOptions; void taskRunFields; void invalidRunFields;
 const factory: NestedAgentTaskFactory = (ctx, options) => {
   const phase: 'task' = ctx.executionPhase;
   void phase;
@@ -46,9 +59,10 @@ new FlowRunner({ tasks: {}, flows: {}, agents: {}, registry: new TaskRegistry(),
     join(workspace, 'runtime.mjs'),
     `import { AgentTask, FlowRunner, TaskRegistry } from '@db-lyon/flowkit';
 let turns = 0;
+let workerAttempts = 0;
 let factoryPhase;
 const provider = { async complete(request) {
-  if (request.system === 'WORKER') return { text: 'worker-done', finishReason: 'stop' };
+  if (request.system === 'WORKER') { workerAttempts += 1; throw new Error('non-retryable'); }
   turns += 1;
   return turns === 1
     ? { text: '', finishReason: 'tool_use', toolCalls: [{ id: '1', name: 'worker', arguments: { prompt: 'go' } }] }
@@ -60,11 +74,11 @@ const runner = new FlowRunner({
   agents: { coord: { system: 'COORD', tools: [{ agent: 'worker' }], budget: { tokenBudget: 1000 } }, worker: { system: 'WORKER' } },
   registry: new TaskRegistry(),
   context: { llm: provider },
-  nestedAgentTaskFactory: (ctx, options) => { factoryPhase = ctx.executionPhase; return new AgentTask(ctx, options); },
+  nestedAgentTaskFactory: (ctx, options) => { factoryPhase = ctx.executionPhase; return new AgentTask(ctx, { ...options, retries: 2, retryDelay: 0, retryOn: () => false }); },
 });
 const result = await runner.run({ flowName: 'main' });
-if (!result.success || factoryPhase !== 'task') throw new Error('packed nested-agent factory failed');
-console.log('packed nested-agent factory: PASS');
+if (!result.success || factoryPhase !== 'task' || workerAttempts !== 1 || result.steps[0]?.result?.data?.toolCalls?.[0]?.ok !== false) throw new Error('packed nested-agent retry predicate failed');
+console.log('packed nested-agent retry predicate: PASS');
 `,
   );
   runNpm(['install', '--ignore-scripts', tarball], workspace);

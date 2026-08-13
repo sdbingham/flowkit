@@ -7,6 +7,24 @@ function makeTask(opts: Record<string, unknown>, provider?: LLMProvider) {
 }
 
 describe('AgentPromptTask', () => {
+  it('uses the host retryOn predicate for its completion path', async () => {
+    let attempts = 0;
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        throw new Error('not retryable');
+      },
+    };
+
+    const result = await makeTask(
+      { prompt: 'x', retries: 2, retryDelay: 0, retryOn: () => false },
+      provider,
+    ).run();
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(1);
+  });
+
   it('returns text in data when provider responds', async () => {
     const provider: LLMProvider = {
       async complete(req) {

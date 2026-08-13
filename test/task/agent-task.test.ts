@@ -45,6 +45,82 @@ function makeTask(opts: Record<string, unknown>, ctx: Partial<TaskContext>) {
 }
 
 describe('AgentTask', () => {
+  it('does not retry a provider error when host retryOn returns false', async () => {
+    let attempts = 0;
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        throw new Error('not retryable');
+      },
+    };
+
+    const result = await makeTask(
+      { prompt: 'x', retries: 2, retryDelay: 0, retryOn: () => false },
+      { llm: provider },
+    ).run();
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(1);
+  });
+
+  it('retries a provider error when host retryOn returns true', async () => {
+    let attempts = 0;
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        throw new Error('retryable');
+      },
+    };
+
+    const result = await makeTask(
+      { prompt: 'x', retries: 2, retryDelay: 0, retryOn: () => true },
+      { llm: provider },
+    ).run();
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(3);
+  });
+
+  it('retries all provider errors by default when retryOn is omitted', async () => {
+    let attempts = 0;
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        throw new Error('default retryable');
+      },
+    };
+
+    const result = await makeTask({ prompt: 'x', retries: 2, retryDelay: 0 }, { llm: provider }).run();
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(3);
+  });
+
+  it('uses retryOn for the structured final-answer completion path', async () => {
+    let attempts = 0;
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        if (attempts === 1) return finalTurn('not json');
+        throw new Error('do not retry finalizer');
+      },
+    };
+
+    const result = await makeTask(
+      {
+        prompt: 'x',
+        retries: 2,
+        retryDelay: 0,
+        retryOn: () => false,
+        schema: { type: 'object', required: ['ok'] },
+      },
+      { llm: provider },
+    ).run();
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(2);
+  });
+
   it('returns a final answer with no tools', async () => {
     const { provider } = scripted([finalTurn('done')]);
     const task = makeTask({ prompt: 'hi' }, { llm: provider });

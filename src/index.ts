@@ -47,7 +47,7 @@ export {
   LLMTimeoutError,
   StructuredOutputError,
 } from './task/llm-runner.js';
-export type { LLMRunOptions, LLMRunResult, AgentRunFields } from './task/llm-runner.js';
+export type { LLMRunOptions, LLMRunResult, AgentRunFields, AgentRetryOptions } from './task/llm-runner.js';
 export { validateJson, formatErrors } from './task/json-schema.js';
 export type { ValidationError, ValidationResult } from './task/json-schema.js';
 export { mapLimit } from './task/concurrency.js';

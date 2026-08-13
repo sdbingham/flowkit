@@ -58,12 +58,22 @@ export interface AgentRunFields {
   maxOutputChars?: number;
 }
 
+/**
+ * Programmatic-only retry control for agent tasks. This deliberately stays out
+ * of `AgentRunFields`, whose members remain safe to declare in YAML.
+ */
+export interface AgentRetryOptions {
+  /** Decide whether a thrown provider error is retryable. Default: retry all errors. */
+  retryOn?: (err: Error) => boolean;
+}
+
 /** Lift the run-control fields out of a task's options into `LLMRunOptions`. */
-export function pickRunOptions(o: AgentRunFields): LLMRunOptions {
+export function pickRunOptions(o: AgentRunFields & AgentRetryOptions): LLMRunOptions {
   const out: LLMRunOptions = {};
   if (o.timeout !== undefined) out.timeout = o.timeout;
   if (o.retries !== undefined) out.retries = o.retries;
   if (o.retryDelay !== undefined) out.retryDelay = o.retryDelay;
+  if (o.retryOn !== undefined) out.retryOn = o.retryOn;
   if (o.repairAttempts !== undefined) out.repairAttempts = o.repairAttempts;
   if (o.maxOutputChars !== undefined) out.maxOutputChars = o.maxOutputChars;
   return out;

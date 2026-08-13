@@ -373,6 +373,13 @@ Programmatic callers can use `runCompletion(provider, request, options, logger)`
 directly — it is the shared core both tasks build on, and it accepts a
 `retryOn(err)` predicate for fine-grained retry control.
 
+Programmatic `AgentTaskOptions` and `AgentPromptOptions` also accept an optional
+`retryOn(err)` predicate. Flowkit passes it unchanged to every completion for
+that task, including retries and structured-answer completion. When omitted,
+the existing retry-all behavior remains. This function-valued `retryOn` is
+host-only: it is not part of `AgentRunFields` or agent YAML/config schemas.
+This is distinct from Flowkit's existing flow-step `retryOn` string matcher.
+
 ## Security notes
 
 - **Prompt injection.** Templating prior step output (`${steps...}`) or feeding

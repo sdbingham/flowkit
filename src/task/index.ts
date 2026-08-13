@@ -23,7 +23,7 @@ export {
   LLMTimeoutError,
   StructuredOutputError,
 } from './llm-runner.js';
-export type { LLMRunOptions, LLMRunResult, AgentRunFields } from './llm-runner.js';
+export type { LLMRunOptions, LLMRunResult, AgentRunFields, AgentRetryOptions } from './llm-runner.js';
 export { validateJson, formatErrors } from './json-schema.js';
 export type { ValidationError, ValidationResult } from './json-schema.js';
 export { redact, truncate, preview } from './redact.js';

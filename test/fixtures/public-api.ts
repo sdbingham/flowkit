@@ -1,5 +1,17 @@
 import type { ShellTaskOptions as RootShellTaskOptions } from '@db-lyon/flowkit';
 import type { ShellTaskOptions as TaskShellTaskOptions } from '@db-lyon/flowkit/task';
+import type {
+  AgentPromptOptions as RootAgentPromptOptions,
+  AgentRetryOptions as RootAgentRetryOptions,
+  AgentRunFields as RootAgentRunFields,
+  AgentTaskOptions as RootAgentTaskOptions,
+} from '@db-lyon/flowkit';
+import type {
+  AgentPromptOptions as TaskAgentPromptOptions,
+  AgentRetryOptions as TaskAgentRetryOptions,
+  AgentRunFields as TaskAgentRunFields,
+  AgentTaskOptions as TaskAgentTaskOptions,
+} from '@db-lyon/flowkit/task';
 import type { Guard as RootGuard, GuardContext } from '@db-lyon/flowkit';
 import type { Guard as GuardGuard } from '@db-lyon/flowkit/guard';
 import { GuardRegistry, runGuarded, guardContextBase } from '@db-lyon/flowkit/guard';
@@ -38,6 +50,17 @@ import { BaseTask as RootBaseTask } from '@db-lyon/flowkit';
 const signal = new AbortController().signal;
 const rootOptions: RootShellTaskOptions = { command: 'echo root', signal };
 const taskOptions: TaskShellTaskOptions = { command: 'echo task', signal };
+const retryOn = (err: Error) => err.name === 'retryable';
+const rootAgentTaskOptions: RootAgentTaskOptions = { prompt: 'root', retryOn };
+const rootAgentPromptOptions: RootAgentPromptOptions = { prompt: 'root', retryOn };
+const taskAgentTaskOptions: TaskAgentTaskOptions = { prompt: 'task', retryOn };
+const taskAgentPromptOptions: TaskAgentPromptOptions = { prompt: 'task', retryOn };
+const rootAgentRetryOptions: RootAgentRetryOptions = { retryOn };
+const taskAgentRetryOptions: TaskAgentRetryOptions = rootAgentRetryOptions;
+const rootAgentRunFields: RootAgentRunFields = { retries: 2 };
+const taskAgentRunFields: TaskAgentRunFields = rootAgentRunFields;
+// @ts-expect-error retryOn is host-only and must not become part of YAML-safe AgentRunFields.
+const invalidAgentRunFields: RootAgentRunFields = { retryOn };
 const rootTask = new RootShellTask({}, rootOptions);
 const taskTask = new TaskShellTask({}, taskOptions);
 const rootCreatedTask = new RootTaskRegistry().create('root-task', {}, {});
@@ -149,6 +172,15 @@ const run = runGuarded(guardContextBase(), registry, async () => 'ok');
 
 void rootOptions;
 void taskOptions;
+void rootAgentTaskOptions;
+void rootAgentPromptOptions;
+void taskAgentTaskOptions;
+void taskAgentPromptOptions;
+void rootAgentRetryOptions;
+void taskAgentRetryOptions;
+void rootAgentRunFields;
+void taskAgentRunFields;
+void invalidAgentRunFields;
 void run;
 void rootTask;
 void taskTask;

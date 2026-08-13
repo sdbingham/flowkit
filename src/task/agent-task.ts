@@ -12,6 +12,7 @@ import {
   coerceStructured,
   StructuredOutputError,
   type AgentRunFields,
+  type AgentRetryOptions,
 } from './llm-runner.js';
 import { validateJson, formatErrors } from './json-schema.js';
 import { preview, truncate } from './redact.js';
@@ -52,7 +53,7 @@ export interface AgentToolSpec {
   parameters?: Record<string, unknown>;
 }
 
-export interface AgentTaskOptions extends AgentRunFields {
+export interface AgentTaskOptions extends AgentRunFields, AgentRetryOptions {
   /** Initial user prompt / task for the agent. Required. */
   prompt: string;
   /** System prompt / instructions. */

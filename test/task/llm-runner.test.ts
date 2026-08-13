@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   runCompletion,
+  pickRunOptions,
   LLMTimeoutError,
   StructuredOutputError,
 } from '../../src/task/llm-runner.js';
@@ -12,6 +13,11 @@ const ok = (text: string, extra: Partial<LLMCompletionResponse> = {}): LLMComple
 });
 
 describe('runCompletion — transport', () => {
+  it('preserves a host retryOn predicate by identity', () => {
+    const retryOn = (err: Error) => err.name === 'transient';
+    expect(pickRunOptions({ retries: 2, retryOn }).retryOn).toBe(retryOn);
+  });
+
   it('passes through a successful response', async () => {
     const provider: LLMProvider = { async complete() { return ok('hi'); } };
     const res = await runCompletion(provider, { prompt: 'x' });

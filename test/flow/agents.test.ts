@@ -58,6 +58,64 @@ function runner(
 }
 
 describe('FlowRunner agents', () => {
+  it('preserves a host retry predicate through direct runTask agent resolution', async () => {
+    let attempts = 0;
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        throw new Error('host-classified non-retryable failure');
+      },
+    };
+    const r = runner({ worker: { system: 'WORKER' } as never }, {}, {}, provider);
+
+    const result = await r.runTask('worker', {
+      prompt: 'go',
+      retries: 2,
+      retryDelay: 0,
+      retryOn: () => false,
+    });
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(1);
+  });
+
+  it('lets a nested-agent factory supply a host retry predicate', async () => {
+    let coordAttempts = 0;
+    let workerAttempts = 0;
+    const provider: LLMProvider = {
+      async complete(req) {
+        if ((req.system ?? '').includes('WORKER')) {
+          workerAttempts++;
+          throw new Error('host-classified non-retryable failure');
+        }
+        coordAttempts++;
+        return coordAttempts === 1
+          ? { text: '', finishReason: 'tool_use', toolCalls: [{ id: '1', name: 'worker', arguments: { prompt: 'sub' } }] }
+          : { text: 'coord-done', finishReason: 'stop' };
+      },
+    };
+    const factory: NestedAgentTaskFactory = (ctx, options) =>
+      new AgentTask(ctx, { ...options, retries: 2, retryDelay: 0, retryOn: () => false });
+    const r = new FlowRunner({
+      tasks: {} as never,
+      flows: { main: { steps: { 1: { task: 'coord', options: { prompt: 'go' } } } } } as never,
+      agents: {
+        coord: { system: 'COORD', tools: [{ agent: 'worker' }], budget: { tokenBudget: 100000 } },
+        worker: { system: 'WORKER' },
+      } as never,
+      registry: new TaskRegistry(),
+      context: { llm: provider },
+      nestedAgentTaskFactory: factory,
+    });
+
+    const result = await r.run({ flowName: 'main' });
+
+    expect(result.success).toBe(true);
+    expect(workerAttempts).toBe(1);
+    const toolCalls = result.steps[0]?.result?.data?.toolCalls as Array<{ ok: boolean }>;
+    expect(toolCalls[0]?.ok).toBe(false);
+  });
+
   it('runs an agent as a flow step', async () => {
     const r = runner(
       { builder: { system: 'BUILDER', tools: [] } as never },
