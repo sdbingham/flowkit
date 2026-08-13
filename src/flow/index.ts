@@ -5,5 +5,7 @@ export type {
   FlowRunResult,
   FlowRunnerHooks,
   FlowRunnerConfig,
+  NestedAgentTask,
+  NestedAgentTaskFactory,
   PlanStep,
 } from './runner.js';

@@ -1,5 +1,32 @@
 # Release notes
 
+## 0.16.0
+
+FlowRunner now accepts a provider-agnostic nested agent task factory for
+configured sub-agents invoked through `agent:` tools:
+
+```typescript
+interface NestedAgentTask {
+  run(): Promise<TaskResult>;
+}
+
+type NestedAgentTaskFactory = (
+  ctx: ResolvedTaskContext & { readonly executionPhase: 'task' },
+  options: AgentTaskOptions,
+) => NestedAgentTask;
+
+new FlowRunner({
+  // ...
+  nestedAgentTaskFactory: (ctx, options) => new AgentTask(ctx, options),
+});
+```
+
+The default remains equivalent to `new AgentTask(ctx, options)`, so existing
+consumers do not need to change. Hosts that wrap Flowkit tasks can use the
+factory to preserve their own task subclass or task construction policy for
+nested `agent:` tool execution without changing direct `AgentTask` behavior or
+using global registration.
+
 ## 0.15.0
 
 Flowkit now exposes a generic execution-lifecycle contract on every task:

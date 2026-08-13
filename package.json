@@ -1,6 +1,6 @@
 {
   "name": "@db-lyon/flowkit",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "YAML-configured task and flow orchestration engine",
   "type": "module",
   "main": "dist/index.js",
@@ -22,6 +22,7 @@
     "prepublishOnly": "tsc -b",
     "test": "vitest run",
     "test:package-api": "npm run build && tsc -p test/tsconfig.public-api.json",
+    "test:packed-consumer": "npm run build && node scripts/test-packed-consumer.mjs",
     "test:types": "tsc -p test/tsconfig.json",
     "test:watch": "vitest"
   },

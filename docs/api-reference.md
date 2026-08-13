@@ -333,7 +333,35 @@ interface FlowRunnerConfig {
   context: TaskContextInput;
   hooks?: FlowRunnerHooks;
   logger?: Logger;
+  conditionEvaluator?: ConditionEvaluator;
+  references?: Record<string, unknown>;
+  agents?: Record<string, AgentDefinition>;
+  nestedAgentTaskFactory?: NestedAgentTaskFactory;
 }
+```
+
+`nestedAgentTaskFactory` customizes only configured sub-agents invoked through
+`agent:` tools. Flowkit calls it with the fully prepared child `TaskContext` and
+compiled `AgentTaskOptions`. When omitted, the behavior is equivalent to:
+
+```typescript
+(ctx, options) => new AgentTask(ctx, options)
+```
+
+Direct `AgentTask` construction, configured agents run as flow steps, registry
+resolution, recursion depth, shared token ledger, references, cancellation
+signals, task registry, execution phase, and tool behavior are otherwise
+unchanged.
+
+```typescript
+interface NestedAgentTask {
+  run(): Promise<TaskResult>;
+}
+
+type NestedAgentTaskFactory = (
+  ctx: ResolvedTaskContext & { readonly executionPhase: 'task' },
+  options: AgentTaskOptions,
+) => NestedAgentTask;
 ```
 
 ---

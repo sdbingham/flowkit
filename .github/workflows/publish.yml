@@ -49,6 +49,9 @@ jobs:
       - run: npm run test:package-api
         if: steps.version.outputs.changed == 'true'
 
+      - run: npm run test:packed-consumer
+        if: steps.version.outputs.changed == 'true'
+
       - run: npm run test:types
         if: steps.version.outputs.changed == 'true'
 

@@ -9,7 +9,15 @@ import { ShellTask as TaskShellTask } from '@db-lyon/flowkit/task';
 import { TaskRegistry as RootTaskRegistry } from '@db-lyon/flowkit';
 import { TaskRegistry as TaskTaskRegistry } from '@db-lyon/flowkit/task';
 import type { FlowRunnerConfig as RootFlowRunnerConfig } from '@db-lyon/flowkit';
-import type { FlowRunnerConfig as FlowFlowRunnerConfig } from '@db-lyon/flowkit/flow';
+import type {
+  FlowRunnerConfig as FlowFlowRunnerConfig,
+  NestedAgentTask as FlowNestedAgentTask,
+  NestedAgentTaskFactory as FlowNestedAgentTaskFactory,
+} from '@db-lyon/flowkit/flow';
+import type {
+  NestedAgentTask as RootNestedAgentTask,
+  NestedAgentTaskFactory as RootNestedAgentTaskFactory,
+} from '@db-lyon/flowkit';
 import type {
   ExecutionPhase as RootExecutionPhase,
   ResolvedTaskContext as RootResolvedTaskContext,
@@ -90,6 +98,33 @@ const hostContext: HostFlowContext = { bridge: { call: async () => null } };
 const hostTaskContext: TaskTaskContext = {};
 const rootRunnerContext: RootFlowRunnerConfig['context'] = {};
 const flowRunnerContext: FlowFlowRunnerConfig['context'] = {};
+const rootNestedAgentTaskFactory: RootNestedAgentTaskFactory = (ctx, options) => ({
+  run: async () => {
+    const nestedPhase: 'task' = ctx.executionPhase;
+    return { success: true, data: { phase: nestedPhase, prompt: options.prompt } };
+  },
+});
+const flowNestedAgentTaskFactory: FlowNestedAgentTaskFactory = rootNestedAgentTaskFactory;
+const rootNestedAgentTask: RootNestedAgentTask = { run: async () => ({ success: true }) };
+const flowNestedAgentTask: FlowNestedAgentTask = rootNestedAgentTask;
+const invalidNestedAgentTask: RootNestedAgentTask = {
+  // @ts-expect-error A nested task must resolve to Flowkit's TaskResult shape.
+  run: async () => 'not a task result',
+};
+const rootRunnerWithNestedFactory: RootFlowRunnerConfig = {
+  tasks: {},
+  flows: {},
+  registry: new RootTaskRegistry(),
+  context: {},
+  nestedAgentTaskFactory: rootNestedAgentTaskFactory,
+};
+const flowRunnerWithNestedFactory: FlowFlowRunnerConfig = {
+  tasks: {},
+  flows: {},
+  registry: new RootTaskRegistry(),
+  context: {},
+  nestedAgentTaskFactory: flowNestedAgentTaskFactory,
+};
 
 // @ts-expect-error lifecycle values are a closed public union.
 const invalidPhase: RootExecutionPhase = 'cleanup';
@@ -133,4 +168,11 @@ void hostContext;
 void hostTaskContext;
 void rootRunnerContext;
 void flowRunnerContext;
+void rootNestedAgentTaskFactory;
+void flowNestedAgentTaskFactory;
+void rootNestedAgentTask;
+void flowNestedAgentTask;
+void invalidNestedAgentTask;
+void rootRunnerWithNestedFactory;
+void flowRunnerWithNestedFactory;
 void invalidPhase;
