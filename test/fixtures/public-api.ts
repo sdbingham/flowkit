@@ -76,6 +76,8 @@ const phases: RootExecutionPhase[] = [
 const taskPhase: TaskExecutionPhase = 'task';
 const rootInput: RootTaskContextInput = {};
 const taskInput: TaskTaskContextInput = {};
+const rootSignalContext: RootTaskContext = { signal };
+const taskSignalContext: TaskTaskContext = { signal };
 
 declare const rootConstructor: RootTaskConstructor;
 declare const taskConstructor: TaskTaskConstructor;
@@ -190,6 +192,8 @@ void phases;
 void taskPhase;
 void rootInput;
 void taskInput;
+void rootSignalContext;
+void taskSignalContext;
 void rootConstructedTask;
 void taskConstructedTask;
 void explicitContextRegistry;

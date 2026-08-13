@@ -25,6 +25,74 @@ describe('AgentPromptTask', () => {
     expect(attempts).toBe(1);
   });
 
+  it('forwards its task signal and makes zero calls when already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let attempts = 0;
+    const provider: LLMProvider = { async complete() { attempts++; return { text: 'unexpected' }; } };
+
+    const result = await new AgentPromptTask(
+      { llm: provider, signal: controller.signal } as never,
+      { prompt: 'x', retries: 2 } as never,
+    ).run();
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(0);
+  });
+
+  it('forwards task cancellation to an in-flight provider call', async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const provider: LLMProvider = {
+      complete(req) {
+        receivedSignal = req.signal;
+        markStarted();
+        return new Promise((resolve) => req.signal?.addEventListener('abort', () => resolve({ text: 'late' }), { once: true }));
+      },
+    };
+    const task = new AgentPromptTask(
+      { llm: provider, signal: controller.signal } as never,
+      { prompt: 'x', retries: 2 } as never,
+    );
+    const completion = task.run();
+    await started;
+    controller.abort();
+
+    const result = await completion;
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(result.success).toBe(false);
+  });
+
+  it('forwards task cancellation to an in-flight structured-output repair', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    let repairStarted!: () => void;
+    const repair = new Promise<void>((resolve) => { repairStarted = resolve; });
+    const provider: LLMProvider = {
+      complete(req) {
+        attempts++;
+        if (attempts === 1) return Promise.resolve({ text: 'not json' });
+        repairStarted();
+        return new Promise((resolve) => {
+          req.signal?.addEventListener('abort', () => resolve({ text: '{"ok":true}' }), { once: true });
+        });
+      },
+    };
+    const task = new AgentPromptTask(
+      { llm: provider, signal: controller.signal } as never,
+      { prompt: 'x', schema: { type: 'object', required: ['ok'] }, repairAttempts: 1 } as never,
+    );
+
+    const result = task.run();
+    await repair;
+    controller.abort();
+
+    await expect(result).resolves.toMatchObject({ success: false });
+    expect(attempts).toBe(2);
+  });
+
   it('returns text in data when provider responds', async () => {
     const provider: LLMProvider = {
       async complete(req) {

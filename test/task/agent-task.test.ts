@@ -121,6 +121,68 @@ describe('AgentTask', () => {
     expect(attempts).toBe(2);
   });
 
+  it('forwards task cancellation to every normal and structured completion turn', async () => {
+    const controller = new AbortController();
+    const signals: Array<AbortSignal | undefined> = [];
+    let attempts = 0;
+    const provider: LLMProvider = {
+      async complete(req) {
+        signals.push(req.signal);
+        attempts++;
+        return attempts === 1 ? finalTurn('not json') : finalTurn('{"ok":true}');
+      },
+    };
+
+    const result = await makeTask(
+      { prompt: 'x', schema: { type: 'object', required: ['ok'] } },
+      { llm: provider, signal: controller.signal },
+    ).run();
+
+    expect(result.success).toBe(true);
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal !== undefined)).toBe(true);
+  });
+
+  it('does not call its provider when the task signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let attempts = 0;
+    const provider: LLMProvider = { async complete() { attempts++; return finalTurn('unexpected'); } };
+
+    const result = await makeTask({ prompt: 'x' }, { llm: provider, signal: controller.signal }).run();
+
+    expect(result.success).toBe(false);
+    expect(attempts).toBe(0);
+  });
+
+  it('cancels an in-flight structured finalization through the task signal', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    let finalizationStarted!: () => void;
+    const finalization = new Promise<void>((resolve) => { finalizationStarted = resolve; });
+    const provider: LLMProvider = {
+      complete(req) {
+        attempts++;
+        if (attempts === 1) return Promise.resolve(finalTurn('not json'));
+        finalizationStarted();
+        return new Promise<LLMCompletionResponse>((resolve) => {
+          req.signal?.addEventListener('abort', () => resolve(finalTurn('{"ok":true}')), { once: true });
+        });
+      },
+    };
+
+    const task = makeTask(
+      { prompt: 'x', schema: { type: 'object', required: ['ok'] }, repairAttempts: 1 },
+      { llm: provider, signal: controller.signal },
+    );
+    const result = task.run();
+    await finalization;
+    controller.abort();
+
+    await expect(result).resolves.toMatchObject({ success: false });
+    expect(attempts).toBe(2);
+  });
+
   it('returns a final answer with no tools', async () => {
     const { provider } = scripted([finalTurn('done')]);
     const task = makeTask({ prompt: 'hi' }, { llm: provider });

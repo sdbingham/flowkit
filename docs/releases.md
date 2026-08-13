@@ -11,6 +11,11 @@ YAML/config schemas remain plain-data only; this function-valued `retryOn` is
 host-owned and must be supplied in code. It is distinct from the existing
 flow-step `retryOn` string matcher.
 
+Agent and prompt tasks now also forward their invocation-scoped
+`TaskContext.signal` to every completion and repair turn. Cancellation prevents
+new attempts during retry backoff, while the completion runner removes listeners
+used to combine request and timeout signals on every terminal path.
+
 On Windows, ShellTask now allows its bounded `taskkill /T /F` tree-termination
 operation up to five seconds before releasing the command root. This reduces
 the chance of ending the helper early on a loaded host while retaining a

@@ -81,6 +81,7 @@ export class AgentPromptTask extends BaseTask<AgentPromptOptions> {
           maxTokens: this.options.maxTokens,
           temperature: this.options.temperature,
           schema: this.options.schema,
+          signal: this.ctx.signal,
         },
         pickRunOptions(this.options),
         this.logger,

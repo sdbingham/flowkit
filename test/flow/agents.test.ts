@@ -116,6 +116,49 @@ describe('FlowRunner agents', () => {
     expect(toolCalls[0]?.ok).toBe(false);
   });
 
+  it('forwards the run signal to a nested configured agent', async () => {
+    const controller = new AbortController();
+    let coordinatorAttempts = 0;
+    let workerAttempts = 0;
+    let workerSignal: AbortSignal | undefined;
+    let markWorkerStarted!: () => void;
+    const workerStarted = new Promise<void>((resolve) => { markWorkerStarted = resolve; });
+    const provider: LLMProvider = {
+      complete(req) {
+        if ((req.system ?? '').includes('WORKER')) {
+          workerAttempts++;
+          workerSignal = req.signal;
+          markWorkerStarted();
+          return new Promise((resolve) => req.signal?.addEventListener('abort', () => resolve({ text: 'late', finishReason: 'stop' }), { once: true }));
+        }
+        coordinatorAttempts++;
+        return Promise.resolve(coordinatorAttempts === 1
+          ? { text: '', finishReason: 'tool_use', toolCalls: [{ id: '1', name: 'worker', arguments: { prompt: 'sub' } }] }
+          : { text: 'coord-done', finishReason: 'stop' });
+      },
+    };
+    const r = new FlowRunner({
+      tasks: {} as never,
+      flows: { main: { steps: { 1: { task: 'coord', options: { prompt: 'go' } } } } } as never,
+      agents: {
+        coord: { system: 'COORD', tools: [{ agent: 'worker' }], budget: { tokenBudget: 100000 } },
+        worker: { system: 'WORKER' },
+      } as never,
+      registry: new TaskRegistry(),
+      context: { llm: provider, signal: controller.signal },
+      nestedAgentTaskFactory: (ctx, options) => new AgentTask(ctx, options),
+    });
+
+    const resultPromise = r.run({ flowName: 'main' });
+    await workerStarted;
+    controller.abort();
+    const result = await resultPromise;
+
+    expect(workerAttempts).toBe(1);
+    expect(workerSignal?.aborted).toBe(true);
+    expect(result.success).toBe(false);
+  });
+
   it('runs an agent as a flow step', async () => {
     const r = runner(
       { builder: { system: 'BUILDER', tools: [] } as never },

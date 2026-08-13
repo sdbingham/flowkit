@@ -148,6 +148,12 @@ it to `context`. `ctx.executionPhase` holds the same value but is typed
 optional, because `TaskContext` is also the shape hosts build their own context
 interfaces from; prefer the `this.executionPhase` accessor.
 
+`ctx.signal` is an optional, read-only host cancellation signal. A runner
+propagates its host/run-scoped signal to task invocations; a direct task may
+receive its own invocation signal. Agent and prompt tasks forward it to every
+LLM call and retry delay, so cancellation prevents later retry attempts. It is
+runtime context only and is not supported in YAML/configuration.
+
 Treat the context as read-only. Each task is handed its own derived context, so assigning a key inside a task (`this.ctx.cached = x`) does not reach the next step, another task, or a sub-agent. To share mutable state, put a mutable object on the context up front and write into that:
 
 ```typescript
@@ -243,7 +249,7 @@ Existing YAML consumers need no change. Programmatic callers that need
 cancellation pass an invocation-specific `AbortSignal` in the task options.
 After cancellation, Flowkit waits for the shell to close, with a bounded
 fallback if the operating system does not report closure (one second on POSIX,
-three seconds on Windows). That fallback does not guarantee all descendants
+five seconds on Windows). That fallback does not guarantee all descendants
 have exited. At the deadline Flowkit requests force termination and releases
 its Node handles for the root shell and any Windows `taskkill` helper before
 returning. On POSIX,
@@ -254,7 +260,7 @@ supplied `AbortSignal` for cancellation.
 
 On Windows, Flowkit asks `taskkill /T /F` to terminate the shell tree and does
 not kill the shell while that traversal is in progress. If `taskkill` fails or
-the three-second deadline expires, Flowkit requests force termination and
+the five-second deadline expires, Flowkit requests force termination and
 releases its Node handles for the root and helper. Windows and POSIX descendants that escape the managed process
 tree or process group may still survive; Node does not provide a portable
 guarantee of complete descendant termination.

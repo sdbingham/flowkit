@@ -157,6 +157,8 @@ type ExecutionPhase =
 interface TaskContext {
   readonly executionPhase?: ExecutionPhase;
   logger?: Logger;
+  /** Cancels LLM work and retry backoff owned by this task invocation. */
+  readonly signal?: AbortSignal;
   [key: string]: unknown;
 }
 
@@ -182,6 +184,11 @@ Each task receives a fresh context whose `executionPhase` identifies why that
 specific invocation is running. Ordinary steps, nested-flow steps, direct
 `runTask` calls, task-to-task calls, and agent/tool work use `task`. Hook tasks
 use their named phase, and rollback-record invocations use `rollback`.
+
+When a host supplies `context.signal`, `AgentTask` and `AgentPromptTask` forward
+that host/run-scoped signal to their LLM requests, including structured-output
+repair calls. A direct task may instead receive its own invocation signal. YAML
+and configuration schemas do not accept signals or functions.
 
 Hosts continue to pass their shared services through `FlowRunnerConfig.context`
 without setting a phase. Flowkit owns the field and derives it per invocation;
@@ -233,7 +240,7 @@ returns the normal failed result with `Shell command cancelled`. An abort during
 execution requests termination of the spawned shell process. On Windows,
 Flowkit makes a best-effort `taskkill /T /F` request for that invocation's
 shell PID and falls back to direct shell termination only if that request
-fails or the three-second terminal deadline expires. On POSIX,
+fails or the five-second terminal deadline expires. On POSIX,
 signal-bearing invocations run in a dedicated process group. Flowkit requests
 `SIGTERM`, allows 250ms for cooperative cleanup, and then escalates the group
 to `SIGKILL`. Neither approach guarantees termination of descendants that have
@@ -242,7 +249,7 @@ result as proof of complete descendant termination.
 
 For signal-bearing invocations, Flowkit waits for the spawned shell to close
 after requesting termination. If the operating system does not report closure
-within one second on POSIX or three seconds on Windows, it returns the
+within one second on POSIX or five seconds on Windows, it returns the
 cancellation or timeout result with the output captured so far; that bounded
 fallback requests force termination and releases Flowkit's Node handles for
 the root shell and any Windows `taskkill` helper, but is not confirmation that

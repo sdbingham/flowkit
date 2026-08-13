@@ -28,6 +28,8 @@ export interface TaskContext {
   registry?: TaskRegistry;
   /** LLM provider consumed by `AgentPromptTask` / `AgentTask`. */
   llm?: LLMProvider;
+  /** Host-provided cancellation signal observed by this task's LLM calls and retry backoff. */
+  readonly signal?: AbortSignal;
   /** Programmatic agent tools, keyed by the name exposed to the model. */
   agentTools?: Record<string, LLMToolHandler>;
   /**

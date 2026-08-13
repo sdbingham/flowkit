@@ -31,9 +31,9 @@ try {
   );
   writeFileSync(
     join(workspace, 'index.ts'),
-    `import { AgentTask, FlowRunner, TaskRegistry, type AgentPromptOptions, type AgentRetryOptions, type AgentRunFields, type AgentTaskOptions, type NestedAgentTaskFactory } from '@db-lyon/flowkit';
+    `import { AgentTask, FlowRunner, TaskRegistry, type AgentPromptOptions, type AgentRetryOptions, type AgentRunFields, type AgentTaskOptions, type NestedAgentTaskFactory, type TaskContext } from '@db-lyon/flowkit';
 import type { NestedAgentTaskFactory as FlowFactory } from '@db-lyon/flowkit/flow';
-import type { AgentPromptOptions as TaskAgentPromptOptions, AgentRetryOptions as TaskAgentRetryOptions, AgentRunFields as TaskAgentRunFields, AgentTaskOptions as TaskAgentTaskOptions } from '@db-lyon/flowkit/task';
+import type { AgentPromptOptions as TaskAgentPromptOptions, AgentRetryOptions as TaskAgentRetryOptions, AgentRunFields as TaskAgentRunFields, AgentTaskOptions as TaskAgentTaskOptions, TaskContext as TaskTaskContext } from '@db-lyon/flowkit/task';
 const retryOn = (err: Error) => err.name === 'non-retryable';
 const agentOptions: AgentTaskOptions = { prompt: 'go', retryOn };
 const promptOptions: AgentPromptOptions = { prompt: 'go', retryOn };
@@ -43,9 +43,12 @@ const retryOptions: AgentRetryOptions = { retryOn };
 const taskRetryOptions: TaskAgentRetryOptions = retryOptions;
 const runFields: AgentRunFields = { retries: 2 };
 const taskRunFields: TaskAgentRunFields = runFields;
+const signal = new AbortController().signal;
+const rootContext: TaskContext = { signal };
+const taskContext: TaskTaskContext = { signal };
 // @ts-expect-error retryOn is host-only, not YAML-safe AgentRunFields.
 const invalidRunFields: AgentRunFields = { retryOn };
-void taskAgentOptions; void taskPromptOptions; void taskRetryOptions; void taskRunFields; void invalidRunFields;
+void taskAgentOptions; void taskPromptOptions; void taskRetryOptions; void taskRunFields; void rootContext; void taskContext; void invalidRunFields;
 const factory: NestedAgentTaskFactory = (ctx, options) => {
   const phase: 'task' = ctx.executionPhase;
   void phase;
@@ -58,6 +61,12 @@ new FlowRunner({ tasks: {}, flows: {}, agents: {}, registry: new TaskRegistry(),
   writeFileSync(
     join(workspace, 'runtime.mjs'),
     `import { AgentTask, FlowRunner, TaskRegistry } from '@db-lyon/flowkit';
+const cancelled = new AbortController();
+cancelled.abort();
+let preAbortedAttempts = 0;
+const preAbortedTask = new AgentTask({ signal: cancelled.signal, llm: { async complete() { preAbortedAttempts += 1; return { text: 'unexpected', finishReason: 'stop' }; } } }, { prompt: 'go' });
+const preAbortedResult = await preAbortedTask.run();
+if (preAbortedResult.success || preAbortedAttempts !== 0) throw new Error('packed task signal cancellation failed');
 let turns = 0;
 let workerAttempts = 0;
 let factoryPhase;
