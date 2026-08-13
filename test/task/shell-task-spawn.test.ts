@@ -6,6 +6,7 @@ const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn: spawnMock }));
 
 import { ShellTask } from '../../src/task/shell-task.js';
+import { WINDOWS_TERMINATION_GRACE_MS } from '../../src/task/shell-termination.js';
 
 function processStub(pid: number) {
   const child = new EventEmitter() as EventEmitter & {
@@ -223,7 +224,7 @@ describe('ShellTask spawn boundaries', () => {
         }).run();
 
         controller.abort();
-        await vi.advanceTimersByTimeAsync(2_999);
+        await vi.advanceTimersByTimeAsync(WINDOWS_TERMINATION_GRACE_MS - 1);
         expect(child.kill).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(1);
@@ -246,6 +247,7 @@ describe('ShellTask spawn boundaries', () => {
         vi.useRealTimers();
       }
     },
+    12_000,
   );
 
   it('settles once when timeout and abort contend and late events arrive', async () => {

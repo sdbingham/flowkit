@@ -2,7 +2,10 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 
 export const POSIX_SIGTERM_GRACE_MS = 250;
 export const POSIX_TERMINATION_GRACE_MS = 1_000;
-export const WINDOWS_TERMINATION_GRACE_MS = 3_000;
+// `taskkill /T /F` may take several seconds on a loaded Windows host while it
+// enumerates and force-terminates a shell command tree. Keep cancellation
+// bounded, but do not stop the helper early and release a surviving child.
+export const WINDOWS_TERMINATION_GRACE_MS = 5_000;
 
 type SpawnProcess = (
   command: string,

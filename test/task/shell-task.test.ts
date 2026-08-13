@@ -166,7 +166,7 @@ describe('ShellTask', () => {
     };
     const task = new ShellTask({ logger }, {
       command: nodeCommand(
-        `process.stdout.write('started\\n'); setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'yes'), 2_000)`,
+        `process.stdout.write('started\\n'); setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'yes'), 8_000)`,
       ),
       signal: controller.signal,
     });
@@ -180,12 +180,16 @@ describe('ShellTask', () => {
       expect(result.error?.message).toBe(SHELL_TASK_CANCELLED_MESSAGE);
       expect(result.data).toMatchObject({ stderr: '' });
       expect((result.data as { stdout: string }).stdout).toContain('started');
-      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      // Keep the delayed work sufficiently far behind the streamed readiness
+      // marker. On a loaded Windows test worker, consuming stdout can lag the
+      // child timer; a short delay could otherwise create the marker before
+      // this test has an opportunity to issue the abort.
+      await new Promise((resolve) => setTimeout(resolve, 8_500));
       await expect(access(marker)).rejects.toThrow();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 25_000);
 
   it.runIf(process.platform !== 'win32')(
     'escalates a SIGTERM-resistant process group before delayed work runs',
@@ -265,7 +269,9 @@ describe('ShellTask', () => {
       addListener.mockRestore();
       removeListener.mockRestore();
     }
-  });
+  // The first two scenarios can each wait for the bounded Windows tree-kill
+  // deadline, so the default Vitest deadline is not a valid aggregate bound.
+  }, 15_000);
 
   it('cancels only the invocation that owns the signal', async () => {
     const root = await mkdtemp(join(tmpdir(), 'flowkit-shell-'));
@@ -290,7 +296,7 @@ describe('ShellTask', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 12_000);
 
   it('keeps the legacy no-signal timeout result', async () => {
     const task = new ShellTask({}, {
