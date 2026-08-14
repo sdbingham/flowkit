@@ -186,6 +186,134 @@ describe('runCompletion — transport', () => {
     ).rejects.toBeInstanceOf(LLMTimeoutError);
     expect(aborted).toBe(true);
   });
+
+  it('keeps a timeout when it fires before a same-tick request abort', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, 'addEventListener');
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
+      let calls = 0;
+      const provider: LLMProvider = {
+        complete: () => {
+          calls++;
+          return new Promise<LLMCompletionResponse>(() => {});
+        },
+      };
+
+      const completion = runCompletion(
+        provider,
+        { prompt: 'x', signal: controller.signal },
+        { timeout: 10, retries: 0 },
+      );
+      // `callOnce` registered its timeout first. Both callbacks run before the
+      // promise reaction, reproducing a timeout followed by a late abort.
+      setTimeout(() => controller.abort(), 10);
+      vi.advanceTimersByTime(10);
+
+      await expect(completion).rejects.toBeInstanceOf(LLMTimeoutError);
+      expect(calls).toBe(1);
+      expect(add.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+      expect(remove.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps cancellation when request abort is observed before timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, 'addEventListener');
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
+      let calls = 0;
+      const provider: LLMProvider = {
+        complete: () => {
+          calls++;
+          return new Promise<LLMCompletionResponse>(() => {});
+        },
+      };
+
+      const completion = runCompletion(
+        provider,
+        { prompt: 'x', signal: controller.signal },
+        { timeout: 10, retries: 0 },
+      );
+      controller.abort();
+      await expect(completion).rejects.toBeInstanceOf(LLMAbortError);
+      vi.advanceTimersByTime(10);
+
+      expect(calls).toBe(1);
+      expect(add.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+      expect(remove.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a non-retryable provider error when the request aborts later', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    let rejectProvider!: (reason: Error) => void;
+    const provider: LLMProvider = {
+      complete: () => {
+        calls++;
+        return new Promise<LLMCompletionResponse>((_resolve, reject) => {
+          rejectProvider = reject;
+        });
+      },
+    };
+
+    const completion = runCompletion(
+      provider,
+      { prompt: 'x', signal: controller.signal },
+      { retries: 2, retryOn: () => false },
+    );
+    const failure = new Error('non-retryable provider failure');
+    rejectProvider(failure);
+    controller.abort();
+
+    await expect(completion).rejects.toBe(failure);
+    expect(calls).toBe(1);
+  });
+
+  it('cancels during backoff after a retryable timeout without another attempt', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, 'addEventListener');
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
+      let calls = 0;
+      let markBackoffStarted!: () => void;
+      const backoffStarted = new Promise<void>((resolve) => { markBackoffStarted = resolve; });
+      const provider: LLMProvider = {
+        complete: () => {
+          calls++;
+          return new Promise<LLMCompletionResponse>(() => {});
+        },
+      };
+      const logger: Logger = {
+        debug: () => {}, info: () => {}, warn: () => markBackoffStarted(), error: () => {}, child: () => logger,
+      };
+
+      const completion = runCompletion(
+        provider,
+        { prompt: 'x', signal: controller.signal },
+        { timeout: 10, retries: 2, retryDelay: 1_000 },
+        logger,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      await backoffStarted;
+      controller.abort();
+
+      await expect(completion).rejects.toBeInstanceOf(LLMAbortError);
+      expect(calls).toBe(1);
+      expect(add.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(2);
+      expect(remove.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('runCompletion — output cap', () => {

@@ -5,16 +5,18 @@
 `AgentTaskOptions` and `AgentPromptOptions` now accept an optional programmatic
 `retryOn(err: Error) => boolean` predicate. Flowkit forwards it unchanged to
 the shared completion runner for normal turns and structured-answer completion.
-When omitted, retry behavior is unchanged: all thrown errors retry according to
-the configured/default retry count and delay. `AgentRunFields` and agent
+When omitted, retry behavior is unchanged: non-cancellation provider failures
+retry according to the configured/default retry count and delay. `AgentRunFields` and agent
 YAML/config schemas remain plain-data only; this function-valued `retryOn` is
 host-owned and must be supplied in code. It is distinct from the existing
 flow-step `retryOn` string matcher.
 
-Agent and prompt tasks now also forward their invocation-scoped
-`TaskContext.signal` to every completion and repair turn. Cancellation prevents
-new attempts during retry backoff, while the completion runner removes listeners
-used to combine request and timeout signals on every terminal path.
+Agent and prompt tasks now also forward the host/run-scoped
+`TaskContext.signal` supplied through `FlowRunner` to every completion and
+repair turn; directly constructed tasks may instead receive an
+invocation-specific signal. Cancellation prevents new attempts during retry
+backoff, while the completion runner removes listeners used to combine request
+and timeout signals on every terminal path.
 
 On Windows, ShellTask now allows its bounded `taskkill /T /F` tree-termination
 operation up to five seconds before releasing the command root. This reduces

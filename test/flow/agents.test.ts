@@ -79,6 +79,43 @@ describe('FlowRunner agents', () => {
     expect(attempts).toBe(1);
   });
 
+  it('ignores a configured scalar retryOn for a raw agent task definition', async () => {
+    let attempts = 0;
+    const failure = new Error('provider failure');
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        throw failure;
+      },
+    };
+    const registry = new TaskRegistry().register('agent', AgentTask as never);
+    const r = new FlowRunner({
+      tasks: {
+        worker: {
+          class_path: 'agent',
+          options: {
+            system: 'WORKER',
+            prompt: 'go',
+            retries: 1,
+            retryDelay: 0,
+            // Task definitions originate in plain-data config; this must retain
+            // the pre-0.17 default rather than becoming a callable predicate.
+            retryOn: 'transient',
+          },
+        },
+      } as never,
+      flows: {} as never,
+      registry,
+      context: { llm: provider },
+    });
+
+    const result = await r.runTask('worker');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe(failure);
+    expect(attempts).toBe(2);
+  });
+
   it('lets a nested-agent factory supply a host retry predicate', async () => {
     let coordAttempts = 0;
     let workerAttempts = 0;

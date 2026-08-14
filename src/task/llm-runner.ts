@@ -73,7 +73,10 @@ export function pickRunOptions(o: AgentRunFields & AgentRetryOptions): LLMRunOpt
   if (o.timeout !== undefined) out.timeout = o.timeout;
   if (o.retries !== undefined) out.retries = o.retries;
   if (o.retryDelay !== undefined) out.retryDelay = o.retryDelay;
-  if (o.retryOn !== undefined) out.retryOn = o.retryOn;
+  // Raw task options can originate in YAML, whose permissive task-option
+  // record may contain a scalar named `retryOn`. Only programmatic functions
+  // participate in the host-only LLM retry predicate contract.
+  if (typeof o.retryOn === 'function') out.retryOn = o.retryOn;
   if (o.repairAttempts !== undefined) out.repairAttempts = o.repairAttempts;
   if (o.maxOutputChars !== undefined) out.maxOutputChars = o.maxOutputChars;
   return out;
@@ -186,7 +189,10 @@ async function callWithRetry(
       return await callOnce(provider, req, cfg.timeout);
     } catch (err) {
       lastErr = err instanceof Error ? err : new Error(String(err));
-      if (req.signal?.aborted || lastErr instanceof LLMAbortError) throw new LLMAbortError();
+      // `callOnce` records cancellation as LLMAbortError at the attempt
+      // boundary. Do not re-read the mutable request signal here: a later
+      // abort must not rewrite a timeout or provider error that already won.
+      if (lastErr instanceof LLMAbortError) throw lastErr;
       const canRetry = attempt < cfg.retries && (cfg.retryOn ? cfg.retryOn(lastErr) : true);
       if (!canRetry) break;
       const delay = cfg.retryDelay * 2 ** attempt;
