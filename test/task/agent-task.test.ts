@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AgentTask } from '../../src/task/agent-task.js';
 import { BaseTask, type TaskResult, type TaskContext } from '../../src/task/base-task.js';
 import { TaskRegistry } from '../../src/task/registry.js';
 import type { LLMProvider, LLMCompletionResponse } from '../../src/task/llm-provider.js';
+import type { Logger } from '../../src/logger.js';
 
 /** Provider that returns a scripted sequence of responses. */
 function scripted(responses: LLMCompletionResponse[]): { provider: LLMProvider; count: () => number } {
@@ -153,6 +154,36 @@ describe('AgentTask', () => {
 
     expect(result.success).toBe(false);
     expect(attempts).toBe(0);
+  });
+
+  it('cancels retry backoff without a later AgentTask provider attempt and cleans listeners', async () => {
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, 'addEventListener');
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    let attempts = 0;
+    let markBackoffStarted!: () => void;
+    const backoffStarted = new Promise<void>((resolve) => { markBackoffStarted = resolve; });
+    const logger: Logger = {
+      debug: () => {}, info: () => {}, warn: () => markBackoffStarted(), error: () => {}, child: () => logger,
+    };
+    const provider: LLMProvider = {
+      async complete() {
+        attempts++;
+        throw new Error('retryable');
+      },
+    };
+
+    const completion = makeTask(
+      { prompt: 'x', retries: 2, retryDelay: 10_000 },
+      { llm: provider, signal: controller.signal, logger } as TaskContext,
+    ).run();
+    await backoffStarted;
+    controller.abort();
+
+    await expect(completion).resolves.toMatchObject({ success: false, error: { name: 'LLMAbortError' } });
+    expect(attempts).toBe(1);
+    expect(add.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(2);
+    expect(remove.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(2);
   });
 
   it('cancels an in-flight structured finalization through the task signal', async () => {

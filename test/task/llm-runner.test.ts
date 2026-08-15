@@ -161,6 +161,44 @@ describe('runCompletion — transport', () => {
     expect(add).not.toHaveBeenCalled();
   });
 
+  it('cleans source-signal listeners with timeout disabled after success, provider failure, and cancellation', async () => {
+    for (const [provider, outcome] of [
+      [{ async complete() { return ok('done'); } }, 'success'],
+      [{ async complete() { throw new Error('failed'); } }, 'failure'],
+    ] as const satisfies ReadonlyArray<readonly [LLMProvider, 'success' | 'failure']>) {
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, 'addEventListener');
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
+
+      const completion = runCompletion(provider, { prompt: 'x', signal: controller.signal }, { timeout: 0, retries: 0 });
+      if (outcome === 'success') await expect(completion).resolves.toMatchObject({ text: 'done' });
+      else await expect(completion).rejects.toThrow('failed');
+      expect(add.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+      expect(remove.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+      add.mockRestore();
+      remove.mockRestore();
+    }
+
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, 'addEventListener');
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const provider: LLMProvider = {
+      complete() {
+        markStarted();
+        return new Promise<LLMCompletionResponse>(() => {});
+      },
+    };
+    const completion = runCompletion(provider, { prompt: 'x', signal: controller.signal }, { timeout: 0 });
+    await started;
+    controller.abort();
+
+    await expect(completion).rejects.toBeInstanceOf(LLMAbortError);
+    expect(add.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+    expect(remove.mock.calls.filter(([event]) => event === 'abort')).toHaveLength(1);
+  });
+
   it('times out a slow call', async () => {
     const provider: LLMProvider = {
       complete: () => new Promise((resolve) => setTimeout(() => resolve(ok('late')), 100)),
