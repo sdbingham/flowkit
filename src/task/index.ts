@@ -20,6 +20,7 @@ export type { AgentTaskOptions, AgentToolSpec } from './agent-task.js';
 export {
   runCompletion,
   pickRunOptions,
+  LLMAbortError,
   LLMTimeoutError,
   StructuredOutputError,
 } from './llm-runner.js';

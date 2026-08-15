@@ -18,6 +18,9 @@ invocation-specific signal. Cancellation prevents new attempts during retry
 backoff, while the completion runner removes listeners used to combine request
 and timeout signals on every terminal path.
 
+`LLMAbortError` is exported from the root and `./task` entrypoints so hosts can
+recognize the generic cancellation outcome with `instanceof` when needed.
+
 On Windows, ShellTask now allows its bounded `taskkill /T /F` tree-termination
 operation up to five seconds before releasing the command root. This reduces
 the chance of ending the helper early on a loaded host while retaining a

@@ -44,6 +44,7 @@ export type { AgentTaskOptions, AgentToolSpec } from './task/agent-task.js';
 export {
   runCompletion,
   pickRunOptions,
+  LLMAbortError,
   LLMTimeoutError,
   StructuredOutputError,
 } from './task/llm-runner.js';
